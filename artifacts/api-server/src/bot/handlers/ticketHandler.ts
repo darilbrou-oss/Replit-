@@ -11,10 +11,6 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
-  StringSelectMenuInteraction,
-  Colors,
 } from "discord.js";
 import {
   getTicket,
@@ -25,53 +21,37 @@ import {
 } from "../store.js";
 import config from "../../config.js";
 
-const PRIORITY_COLORS: Record<TicketPriority, number> = {
-  high: Colors.Red,
-  medium: Colors.Yellow,
-  low: Colors.Green,
+// ─── Branding ───────────────────────────────────────────────────────────────
+const BRAND_COLOR  = 0x5865F2; // Blurple Discord
+const DANGER_COLOR = 0xED4245;
+const WARN_COLOR   = 0xFEE75C;
+const SUCCESS_COLOR = 0x57F287;
+
+const PRIORITY_META: Record<TicketPriority, { color: number; label: string; emoji: string }> = {
+  high:   { color: DANGER_COLOR,  label: "Haute",   emoji: "🔴" },
+  medium: { color: WARN_COLOR,    label: "Moyenne",  emoji: "🟡" },
+  low:    { color: SUCCESS_COLOR, label: "Basse",    emoji: "🟢" },
 };
 
-const PRIORITY_LABELS: Record<TicketPriority, string> = {
-  high: "🔴 Haute",
-  medium: "🟡 Moyenne",
-  low: "🟢 Basse",
-};
-
-function buildStaffPanel(
-  ticket: NonNullable<ReturnType<typeof getTicket>>,
-): {
-  embeds: EmbedBuilder[];
-  components: ActionRowBuilder<ButtonBuilder>[];
-} {
-  const priority = ticket.priority;
-  const claimedBy = ticket.claimedBy;
+// ─── Staff Panel Builder ─────────────────────────────────────────────────────
+function buildStaffPanel(ticket: NonNullable<ReturnType<typeof getTicket>>) {
+  const pm = PRIORITY_META[ticket.priority];
 
   const embed = new EmbedBuilder()
-    .setTitle("🎫 Panneau de Contrôle — Staff")
-    .setColor(PRIORITY_COLORS[priority])
-    .addFields(
-      {
-        name: "👤 Utilisateur",
-        value: `<@${ticket.userId}>`,
-        inline: true,
-      },
-      {
-        name: "📊 Priorité",
-        value: PRIORITY_LABELS[priority],
-        inline: true,
-      },
-      {
-        name: "✋ Pris en charge par",
-        value: claimedBy ? `<@${claimedBy}>` : "Personne",
-        inline: true,
-      },
-      {
-        name: "🕐 Créé le",
-        value: `<t:${Math.floor(ticket.createdAt / 1000)}:R>`,
-        inline: true,
-      },
+    .setColor(pm.color)
+    .setAuthor({ name: `🎫  Ticket #${String(ticket.ticketNumber).padStart(4, "0")}  •  Panneau Staff` })
+    .setDescription(
+      ticket.claimedBy
+        ? `> Ce ticket est géré par <@${ticket.claimedBy}>.\n> Les autres modérateurs peuvent passer à autre chose. ✅`
+        : "> Aucun membre du staff n'a encore pris en charge ce ticket.",
     )
-    .setFooter({ text: `Ticket #${ticket.ticketNumber}` })
+    .addFields(
+      { name: "👤  Utilisateur",   value: `<@${ticket.userId}>`,              inline: true },
+      { name: `${pm.emoji}  Priorité`, value: `**${pm.label}**`,             inline: true },
+      { name: "✋  Pris en charge", value: ticket.claimedBy ? `<@${ticket.claimedBy}>` : "*Personne*", inline: true },
+      { name: "🕐  Ouvert",         value: `<t:${Math.floor(ticket.createdAt / 1000)}:R>`, inline: true },
+    )
+    .setFooter({ text: "Utilisez les boutons ci-dessous pour gérer ce ticket" })
     .setTimestamp();
 
   const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -82,12 +62,12 @@ function buildStaffPanel(
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
       .setCustomId(`ticket_claim:${ticket.channelId}`)
-      .setLabel(claimedBy ? "Libérer" : "Claim")
+      .setLabel(ticket.claimedBy ? "Libérer" : "Claim")
       .setEmoji("✋")
-      .setStyle(claimedBy ? ButtonStyle.Secondary : ButtonStyle.Primary),
+      .setStyle(ticket.claimedBy ? ButtonStyle.Secondary : ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`ticket_notify:${ticket.channelId}`)
-      .setLabel("Notification")
+      .setLabel("Notifier")
       .setEmoji("🔔")
       .setStyle(ButtonStyle.Secondary),
   );
@@ -97,75 +77,62 @@ function buildStaffPanel(
       .setCustomId(`ticket_priority_high:${ticket.channelId}`)
       .setLabel("Haute")
       .setEmoji("🔴")
-      .setStyle(
-        priority === "high" ? ButtonStyle.Danger : ButtonStyle.Secondary,
-      ),
+      .setStyle(ticket.priority === "high" ? ButtonStyle.Danger : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`ticket_priority_medium:${ticket.channelId}`)
       .setLabel("Moyenne")
       .setEmoji("🟡")
-      .setStyle(
-        priority === "medium" ? ButtonStyle.Primary : ButtonStyle.Secondary,
-      ),
+      .setStyle(ticket.priority === "medium" ? ButtonStyle.Primary : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`ticket_priority_low:${ticket.channelId}`)
       .setLabel("Basse")
       .setEmoji("🟢")
-      .setStyle(
-        priority === "low" ? ButtonStyle.Success : ButtonStyle.Secondary,
-      ),
+      .setStyle(ticket.priority === "low" ? ButtonStyle.Success : ButtonStyle.Secondary),
   );
 
   return { embeds: [embed], components: [row1, row2] };
 }
 
-export async function handleCreateTicketButton(
-  interaction: ButtonInteraction,
-): Promise<void> {
+// ─── Create Ticket — Button ──────────────────────────────────────────────────
+export async function handleCreateTicketButton(interaction: ButtonInteraction) {
   const modal = new ModalBuilder()
     .setCustomId("modal_ticket_create")
-    .setTitle("🎫 Créer un Ticket");
-
-  const reasonInput = new TextInputBuilder()
-    .setCustomId("ticket_reason")
-    .setLabel("Raison de votre ticket")
-    .setStyle(TextInputStyle.Paragraph)
-    .setPlaceholder("Décrivez votre problème ou votre demande...")
-    .setRequired(true)
-    .setMaxLength(500);
+    .setTitle("📩  Ouvrir un Ticket");
 
   modal.addComponents(
-    new ActionRowBuilder<TextInputBuilder>().addComponents(reasonInput),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId("ticket_reason")
+        .setLabel("Décris ton problème ou ta demande")
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder("Ex : J'ai un problème avec ma commande n°1234...")
+        .setMinLength(10)
+        .setMaxLength(500)
+        .setRequired(true),
+    ),
   );
 
   await interaction.showModal(modal);
 }
 
-export async function handleCreateTicketModal(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
+// ─── Create Ticket — Modal ───────────────────────────────────────────────────
+export async function handleCreateTicketModal(interaction: ModalSubmitInteraction) {
   await interaction.deferReply({ ephemeral: true });
 
   const guild = interaction.guild;
   if (!guild) return;
 
-  const reason =
-    interaction.fields.getTextInputValue("ticket_reason") || "Aucune raison";
-
+  const reason = interaction.fields.getTextInputValue("ticket_reason");
   const ticketNumber = nextTicketNumber();
-  const channelName = `ticket-${ticketNumber.toString().padStart(4, "0")}`;
+  const channelName = `ticket-${String(ticketNumber).padStart(4, "0")}`;
 
   try {
-    const categoryId = config.ticketCategoryId;
     const channel = await guild.channels.create({
       name: channelName,
       type: ChannelType.GuildText,
-      parent: categoryId || undefined,
+      parent: config.ticketCategoryId || undefined,
       permissionOverwrites: [
-        {
-          id: guild.roles.everyone,
-          deny: [PermissionFlagsBits.ViewChannel],
-        },
+        { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
         {
           id: interaction.user.id,
           allow: [
@@ -175,17 +142,15 @@ export async function handleCreateTicketModal(
           ],
         },
         ...(config.staffRoleId
-          ? [
-              {
-                id: config.staffRoleId,
-                allow: [
-                  PermissionFlagsBits.ViewChannel,
-                  PermissionFlagsBits.SendMessages,
-                  PermissionFlagsBits.ReadMessageHistory,
-                  PermissionFlagsBits.ManageMessages,
-                ],
-              },
-            ]
+          ? [{
+              id: config.staffRoleId,
+              allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.ManageMessages,
+              ],
+            }]
           : []),
       ],
     });
@@ -203,17 +168,24 @@ export async function handleCreateTicketModal(
 
     await saveTicket(channel.id, ticketData);
 
+    // ── Welcome embed
     const welcomeEmbed = new EmbedBuilder()
-      .setTitle(`🎫 Ticket #${ticketNumber.toString().padStart(4, "0")}`)
-      .setColor(Colors.Blurple)
+      .setColor(BRAND_COLOR)
+      .setAuthor({ name: `Ticket #${String(ticketNumber).padStart(4, "0")}`, iconURL: interaction.user.displayAvatarURL() })
+      .setTitle("Bienvenue dans ton ticket ! 👋")
       .setDescription(
-        `Bonjour <@${interaction.user.id}> ! 👋\n\nMerci d'avoir ouvert un ticket. Notre équipe va vous répondre dès que possible.\n\n**Raison :**\n> ${reason}`,
+        `Bonjour <@${interaction.user.id}>, merci d'avoir contacté le support.\nNotre équipe va te répondre **dès que possible**.\n\n📝 **Raison :**\n> ${reason}`,
       )
-      .setFooter({ text: "Merci de patienter ⏳" })
+      .addFields(
+        { name: "⏳  Temps de réponse estimé", value: "Aussi vite que possible", inline: true },
+        { name: "📌  Conseils",                value: "Sois précis pour une aide rapide", inline: true },
+      )
+      .setFooter({ text: "Ne ferme pas ce salon — le staff va arriver" })
       .setTimestamp();
 
     await channel.send({ embeds: [welcomeEmbed] });
 
+    // ── Staff panel
     const panel = buildStaffPanel(ticketData);
     const controlMsg = await channel.send({
       content: config.staffRoleId ? `<@&${config.staffRoleId}>` : undefined,
@@ -224,82 +196,69 @@ export async function handleCreateTicketModal(
     await saveTicket(channel.id, ticketData);
 
     await interaction.editReply({
-      content: `✅ Ton ticket a été créé : <#${channel.id}>`,
+      content: `✅ **Ticket ouvert avec succès !**\nTu peux y accéder ici → <#${channel.id}>`,
     });
   } catch (err) {
-    console.error("Error creating ticket channel:", err);
-    await interaction.editReply({
-      content: "❌ Erreur lors de la création du ticket. Réessaie plus tard.",
-    });
+    console.error("Error creating ticket:", err);
+    await interaction.editReply({ content: "❌ Impossible de créer le ticket. Réessaie." });
   }
 }
 
-export async function handleTicketClose(
-  interaction: ButtonInteraction,
-  channelId: string,
-): Promise<void> {
+// ─── Close Ticket ────────────────────────────────────────────────────────────
+export async function handleTicketClose(interaction: ButtonInteraction, channelId: string) {
   const ticket = getTicket(channelId);
   if (!ticket) {
-    await interaction.reply({
-      content: "❌ Ce ticket n'existe plus dans la base de données.",
-      ephemeral: true,
-    });
+    await interaction.reply({ content: "❌ Ticket introuvable.", ephemeral: true });
     return;
   }
 
-  await interaction.reply({
-    content:
-      "🔒 Le ticket sera **fermé et supprimé** dans **5 secondes**...\n> Toute l'équipe peut annuler si nécessaire.",
-  });
+  const countdown = new EmbedBuilder()
+    .setColor(DANGER_COLOR)
+    .setTitle("🔒  Fermeture du Ticket")
+    .setDescription(
+      `Ce ticket sera **supprimé dans 5 secondes**.\n> Fermé par <@${interaction.user.id}>`,
+    )
+    .setTimestamp();
 
-  const channel = interaction.channel as TextChannel;
+  await interaction.reply({ embeds: [countdown] });
 
   setTimeout(async () => {
     try {
+      const channel = interaction.guild?.channels.cache.get(channelId) as TextChannel | undefined;
+
+      // ── Log
       if (config.ticketLogChannelId) {
-        const logChannel = interaction.guild?.channels.cache.get(
-          config.ticketLogChannelId,
-        ) as TextChannel | undefined;
-
-        if (logChannel) {
-          const logEmbed = new EmbedBuilder()
-            .setTitle(
-              `📁 Ticket #${ticket.ticketNumber.toString().padStart(4, "0")} — Fermé`,
-            )
-            .setColor(Colors.Red)
-            .addFields(
-              { name: "👤 Utilisateur", value: `<@${ticket.userId}>`, inline: true },
-              {
-                name: "✋ Pris en charge",
-                value: ticket.claimedBy ? `<@${ticket.claimedBy}>` : "Personne",
-                inline: true,
-              },
-              { name: "📊 Priorité", value: PRIORITY_LABELS[ticket.priority], inline: true },
-              {
-                name: "⏱️ Durée",
-                value: `<t:${Math.floor(ticket.createdAt / 1000)}:R>`,
-                inline: true,
-              },
-              { name: "🔒 Fermé par", value: `<@${interaction.user.id}>`, inline: true },
-            )
-            .setTimestamp();
-
-          await logChannel.send({ embeds: [logEmbed] });
+        const logCh = interaction.guild?.channels.cache.get(config.ticketLogChannelId) as TextChannel | undefined;
+        if (logCh) {
+          const pm = PRIORITY_META[ticket.priority];
+          await logCh.send({
+            embeds: [
+              new EmbedBuilder()
+                .setColor(DANGER_COLOR)
+                .setAuthor({ name: `📁  Ticket #${String(ticket.ticketNumber).padStart(4, "0")} — Archivé` })
+                .addFields(
+                  { name: "👤  Utilisateur",      value: `<@${ticket.userId}>`,                                          inline: true },
+                  { name: "✋  Pris en charge",   value: ticket.claimedBy ? `<@${ticket.claimedBy}>` : "*Personne*",   inline: true },
+                  { name: `${pm.emoji}  Priorité`, value: pm.label,                                                     inline: true },
+                  { name: "⏱️  Ouvert",            value: `<t:${Math.floor(ticket.createdAt / 1000)}:R>`,               inline: true },
+                  { name: "🔒  Fermé par",         value: `<@${interaction.user.id}>`,                                  inline: true },
+                )
+                .setTimestamp(),
+            ],
+          });
         }
       }
 
       await deleteTicket(channelId);
-      await channel.delete("Ticket fermé");
-    } catch (err) {
-      console.error("Error closing ticket:", err);
+      await channel?.delete("Ticket fermé");
+    } catch (e) {
+      console.error("Error closing ticket:", e);
     }
   }, 5000);
 }
 
-export async function handleTicketClaim(
-  interaction: ButtonInteraction,
-  channelId: string,
-): Promise<void> {
+// ─── Claim Ticket ────────────────────────────────────────────────────────────
+export async function handleTicketClaim(interaction: ButtonInteraction, channelId: string) {
   const ticket = getTicket(channelId);
   if (!ticket) {
     await interaction.reply({ content: "❌ Ticket introuvable.", ephemeral: true });
@@ -308,69 +267,69 @@ export async function handleTicketClaim(
 
   if (ticket.claimedBy && ticket.claimedBy !== interaction.user.id) {
     await interaction.reply({
-      content: `❌ Ce ticket est déjà pris en charge par <@${ticket.claimedBy}>.`,
+      content: `❌ Ce ticket est déjà géré par <@${ticket.claimedBy}>.`,
       ephemeral: true,
     });
     return;
   }
 
-  const wasClaimed = ticket.claimedBy === interaction.user.id;
-  ticket.claimedBy = wasClaimed ? null : interaction.user.id;
+  const releasing = ticket.claimedBy === interaction.user.id;
+  ticket.claimedBy = releasing ? null : interaction.user.id;
   await saveTicket(channelId, ticket);
 
-  if (wasClaimed) {
-    await interaction.reply({
-      content: `↩️ <@${interaction.user.id}> a libéré ce ticket.`,
-    });
-  } else {
-    await interaction.reply({
-      content: `✋ <@${interaction.user.id}> prend en charge ce ticket ! Les autres modérateurs peuvent laisser ce ticket.`,
-    });
+  const embed = new EmbedBuilder()
+    .setColor(releasing ? 0x99AAB5 : SUCCESS_COLOR)
+    .setDescription(
+      releasing
+        ? `↩️ <@${interaction.user.id}> a **libéré** ce ticket. Un autre membre du staff peut le prendre.`
+        : `✅ <@${interaction.user.id}> **prend en charge** ce ticket.\n> Les autres modérateurs peuvent passer à autre chose.`,
+    );
 
+  await interaction.reply({ embeds: [embed] });
+
+  // Block other staff if claimed
+  if (!releasing && config.staffRoleId) {
     const channel = interaction.channel as TextChannel;
-    if (config.staffRoleId) {
-      await channel.permissionOverwrites.edit(config.staffRoleId, {
-        SendMessages: false,
-      });
-      await channel.permissionOverwrites.edit(interaction.user.id, {
-        ViewChannel: true,
-        SendMessages: true,
-        ReadMessageHistory: true,
-        ManageMessages: true,
-      });
-    }
+    await channel.permissionOverwrites.edit(config.staffRoleId, { SendMessages: false }).catch(() => {});
+    await channel.permissionOverwrites.edit(interaction.user.id, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true, ManageMessages: true,
+    }).catch(() => {});
   }
 
+  // Refresh panel
   if (ticket.controlPanelMessageId) {
     try {
-      const channel = interaction.channel as TextChannel;
-      const msg = await channel.messages.fetch(ticket.controlPanelMessageId);
-      const panel = buildStaffPanel(ticket);
-      await msg.edit(panel);
+      const ch = interaction.channel as TextChannel;
+      const msg = await ch.messages.fetch(ticket.controlPanelMessageId);
+      await msg.edit(buildStaffPanel(ticket));
     } catch {}
   }
 }
 
-export async function handleTicketNotify(
-  interaction: ButtonInteraction,
-  channelId: string,
-): Promise<void> {
+// ─── Notify User ─────────────────────────────────────────────────────────────
+export async function handleTicketNotify(interaction: ButtonInteraction, channelId: string) {
   const ticket = getTicket(channelId);
   if (!ticket) {
     await interaction.reply({ content: "❌ Ticket introuvable.", ephemeral: true });
     return;
   }
 
-  await interaction.reply({
-    content: `🔔 <@${ticket.userId}> — L'équipe attend votre réponse ! Merci de vous manifester.`,
-  });
+  const embed = new EmbedBuilder()
+    .setColor(WARN_COLOR)
+    .setTitle("🔔  Rappel du Support")
+    .setDescription(
+      `Bonjour <@${ticket.userId}> !\nNotre équipe attend ta réponse. **N'hésite pas à répondre ici.** 😊`,
+    );
+
+  await interaction.reply({ embeds: [embed] });
 }
 
+// ─── Set Priority ─────────────────────────────────────────────────────────────
 export async function handleTicketPriority(
   interaction: ButtonInteraction,
   channelId: string,
   priority: TicketPriority,
-): Promise<void> {
+) {
   const ticket = getTicket(channelId);
   if (!ticket) {
     await interaction.reply({ content: "❌ Ticket introuvable.", ephemeral: true });
@@ -380,17 +339,21 @@ export async function handleTicketPriority(
   ticket.priority = priority;
   await saveTicket(channelId, ticket);
 
+  const pm = PRIORITY_META[priority];
   await interaction.reply({
-    content: `📊 Priorité mise à jour : **${PRIORITY_LABELS[priority]}**`,
+    embeds: [
+      new EmbedBuilder()
+        .setColor(pm.color)
+        .setDescription(`${pm.emoji} Priorité mise à jour → **${pm.label}**`),
+    ],
     ephemeral: true,
   });
 
   if (ticket.controlPanelMessageId) {
     try {
-      const channel = interaction.channel as TextChannel;
-      const msg = await channel.messages.fetch(ticket.controlPanelMessageId);
-      const panel = buildStaffPanel(ticket);
-      await msg.edit(panel);
+      const ch = interaction.channel as TextChannel;
+      const msg = await ch.messages.fetch(ticket.controlPanelMessageId);
+      await msg.edit(buildStaffPanel(ticket));
     } catch {}
   }
 }
