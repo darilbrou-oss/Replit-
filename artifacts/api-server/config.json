@@ -8,5 +8,6 @@
   "welcomeChannelId": "",
   "suggestionsChannelId": "",
   "reviewsChannelId": "",
-  "applicationsChannelId": ""
+  "applicationsChannelId": "",
+  "aiChannelId": ""
 }

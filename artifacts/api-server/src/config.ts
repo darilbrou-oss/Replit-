@@ -16,6 +16,7 @@ interface Config {
   suggestionsChannelId: string;
   reviewsChannelId: string;
   applicationsChannelId: string;
+  aiChannelId: string;
 }
 
 const configPath = path.resolve(__dirname, "../config.json");
@@ -31,6 +32,7 @@ let config: Config = {
   suggestionsChannelId: "",
   reviewsChannelId: "",
   applicationsChannelId: "",
+  aiChannelId: "",
 };
 
 try {
