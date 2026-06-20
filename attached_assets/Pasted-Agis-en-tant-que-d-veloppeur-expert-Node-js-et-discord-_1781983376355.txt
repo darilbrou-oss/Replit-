@@ -1,0 +1,28 @@
+Agis en tant que développeur expert Node.js et discord.js v14. Je veux que tu me crées un bot Discord de management et de sécurité absolue. Comme je suis sur un forfait Replit Free, optimise le code pour qu'il soit ultra-léger, sans base de données lourde (utilise des fichiers locaux JSON simples comme database.json si besoin, ou stocke en mémoire RAM). Écris tout le code nécessaire pour que le projet soit prêt à être publié immédiatement.
+
+Voici les fonctionnalités exactes à coder :
+
+1. ARCHITECTURE ET DEPLOYMENT (Prêt à publier) :
+- Crée un serveur Express minimaliste (port 3000) dans le fichier principal pour que le bot reste actif 24/7 via un ping externe.
+- Utilise process.env.TOKEN pour le token du bot.
+- Écris le script de démarrage dans le package.json pour que Replit puisse publier et lancer le bot directement en un clic.
+
+2. TOUS LES SYSTÈMES DE SÉCURITÉ ET ANTI-RAID (Protection maximale) :
+- Anti-Mass Join : Si plus de 5 comptes rejoignent en moins de 10 secondes, le bot passe le serveur en mode "Lockdown" automatique et kick les nouveaux arrivants suspects.
+- Anti-Spam & Anti-Liens : Supprime les messages si un utilisateur envoie plus de 4 messages en 3 secondes, ou s'il envoie un lien d'invitation Discord. Après 3 avertissements (warns), le bot applique un Timeout (Mute) automatique de 10 minutes.
+- Commande de verrouillage d'urgence : Une commande permettant au staff de bloquer/débloquer l'écriture dans un salon instantanément (/lockdown).
+- Anti-Compte Fake / Récent : Kick ou isole automatiquement les comptes créés il y a moins de 5 jours.
+
+3. TOUS LES SYSTÈMES DE MANAGEMENT ET SERVICES :
+- Système de Tickets : Un embed avec un bouton unique "Créer un ticket". Au clic, création d'un salon privé. Dans le ticket, un bouton "Fermer" supprime le salon après avoir enregistré un log des conversations.
+- Système de Formulaires / Candidatures : Un bouton qui ouvre un Modal Discord (fenêtre pop-up) avec des questions (Âge, Motivations, Expériences). Les réponses sont envoyées sous forme d'embed stylé dans le salon du staff avec des boutons "Accepter" / "Refuser".
+- Système d'Avis clients : Une commande permettant de laisser une note de 1 à 5 étoiles avec un commentaire, formatée proprement dans un salon public.
+- Système de Suggestions : Une commande pour proposer une idée, générant un embed interactif avec des réactions automatiques de vote (Pour / Contre).
+- Système de Bienvenue & Auto-rôle : Donne un rôle automatique aux nouveaux et envoie un message de bienvenue avec la date de création de leur compte.
+
+CONSIGNES DE CODE POUR REPLIT FREE :
+- Regroupe le code de manière intelligente pour éviter d'épuiser les quotas de l'Agent Replit (tu peux tout structurer dans un fichier index.js principal bien organisé, ou séparer proprement si nécessaire, mais reste léger).
+- Crée un fichier config.json clair pour que je puisse y mettre facilement les IDs de mes salons (logs, bienvenue, staff, avis, suggestions, catégorie tickets) et de mes rôles.
+- Écris un code robuste qui gère les erreurs (catch) pour éviter que le bot ne crash au moindre problème.
+
+Une fois que tu as généré tous les fichiers, configure le projet pour qu'il soit prêt à être déployé sur Replit.
