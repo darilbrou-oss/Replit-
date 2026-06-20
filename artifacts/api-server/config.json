@@ -1,13 +1,14 @@
 {
-  "guildId": "",
-  "ticketCategoryId": "",
-  "ticketLogChannelId": "",
-  "staffRoleId": "",
-  "modRoleId": "",
-  "adminRoleId": "",
-  "welcomeChannelId": "",
-  "suggestionsChannelId": "",
-  "reviewsChannelId": "",
+  "guildId":               "",
+  "ticketCategoryId":      "",
+  "ticketLogChannelId":    "",
+  "staffRoleId":           "",
+  "modRoleId":             "",
+  "adminRoleId":           "",
+  "autoRoleId":            "",
+  "welcomeChannelId":      "",
+  "suggestionsChannelId":  "",
+  "reviewsChannelId":      "",
   "applicationsChannelId": "",
-  "aiChannelId": ""
+  "aiChannelId":           ""
 }

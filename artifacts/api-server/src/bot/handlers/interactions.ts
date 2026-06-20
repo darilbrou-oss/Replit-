@@ -30,17 +30,22 @@ import {
   handleEmbedCancel,
   handleEmbedRoleButton,
 } from "./embedHandler.js";
+import {
+  addWarn,
+  getWarns,
+  clearWarns,
+  activateLockdown,
+  getLockdownState,
+} from "./securityHandler.js";
 import config from "../../config.js";
-import type { TicketPriority } from "../store.js";
 
 // ─── Branding ────────────────────────────────────────────────────────────────
 const BRAND   = 0x5865F2;
 const SUCCESS = 0x57F287;
 const DANGER  = 0xED4245;
 const WARN    = 0xFEE75C;
-const NEUTRAL = 0x2B2D31;
 
-// ─── Main Router ─────────────────────────────────────────────────────────────
+// ─── Router ──────────────────────────────────────────────────────────────────
 export async function handleInteraction(interaction: Interaction) {
   try {
     if (interaction.isChatInputCommand())  await handleCommand(interaction);
@@ -51,67 +56,70 @@ export async function handleInteraction(interaction: Interaction) {
     try {
       const msg = "❌ Une erreur est survenue. Réessaie dans un instant.";
       if (!interaction.isRepliable()) return;
-      if ("replied" in interaction && interaction.replied) {
-        await interaction.followUp({ content: msg, ephemeral: true });
-      } else if ("deferred" in interaction && interaction.deferred) {
-        await interaction.editReply({ content: msg });
-      } else {
-        await interaction.reply({ content: msg, ephemeral: true });
-      }
+      if ("replied" in interaction && interaction.replied)        await interaction.followUp({ content: msg, ephemeral: true });
+      else if ("deferred" in interaction && interaction.deferred) await interaction.editReply({ content: msg });
+      else                                                         await interaction.reply({ content: msg, ephemeral: true });
     } catch {}
   }
 }
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
-async function handleCommand(interaction: ChatInputCommandInteraction) {
-  switch (interaction.commandName) {
-    case "ticket-setup":  return handleTicketSetup(interaction);
-    case "embed-builder": return handleEmbedBuilderCommand(interaction);
-    case "lockdown":      return handleLockdown(interaction);
-    case "avis":          return handleAvis(interaction);
-    case "suggestion":    return handleSuggestion(interaction);
-    case "candidature":   return handleCandidature(interaction);
+async function handleCommand(i: ChatInputCommandInteraction) {
+  switch (i.commandName) {
+    case "ticket-setup":  return handleTicketSetup(i);
+    case "embed-builder": return handleEmbedBuilderCommand(i);
+    case "lockdown":      return handleLockdownCmd(i);
+    case "warn":          return handleWarnCmd(i);
+    case "warnings":      return handleWarningsCmd(i);
+    case "clear-warns":   return handleClearWarnsCmd(i);
+    case "avis":          return handleAvis(i);
+    case "suggestion":    return handleSuggestion(i);
+    case "candidature":   return handleCandidature(i);
   }
 }
 
 // ─── Buttons ──────────────────────────────────────────────────────────────────
-async function handleButton(interaction: ButtonInteraction) {
-  const [prefix, ...rest] = interaction.customId.split(":");
+async function handleButton(i: ButtonInteraction) {
+  const [prefix, ...rest] = i.customId.split(":");
   const value = rest.join(":");
 
   switch (prefix) {
-    case "ticket_create":          return handleCreateTicketButton(interaction);
-    case "ticket_close":           return handleTicketClose(interaction, value);
-    case "ticket_claim":           return handleTicketClaim(interaction, value);
-    case "ticket_notify":          return handleTicketNotify(interaction, value);
-    case "ticket_priority_high":   return handleTicketPriority(interaction, value, "high");
-    case "ticket_priority_medium": return handleTicketPriority(interaction, value, "medium");
-    case "ticket_priority_low":    return handleTicketPriority(interaction, value, "low");
-    case "embed_add_button":       return handleEmbedAddButton(interaction, value);
-    case "embed_publish":          return handleEmbedPublish(interaction, value);
-    case "embed_cancel":           return handleEmbedCancel(interaction, value);
-    case "embed_role":             return handleEmbedRoleButton(interaction, value);
-    case "application_accept":     return handleApplicationDecision(interaction, value, true);
-    case "application_refuse":     return handleApplicationDecision(interaction, value, false);
+    case "ticket_create":          return handleCreateTicketButton(i);
+    case "ticket_close":           return handleTicketClose(i, value);
+    case "ticket_claim":           return handleTicketClaim(i, value);
+    case "ticket_notify":          return handleTicketNotify(i, value);
+    case "ticket_priority_high":   return handleTicketPriority(i, value, "high");
+    case "ticket_priority_medium": return handleTicketPriority(i, value, "medium");
+    case "ticket_priority_low":    return handleTicketPriority(i, value, "low");
+    case "embed_add_button":       return handleEmbedAddButton(i, value);
+    case "embed_publish":          return handleEmbedPublish(i, value);
+    case "embed_cancel":           return handleEmbedCancel(i, value);
+    case "embed_role":             return handleEmbedRoleButton(i, value);
+    case "application_accept":     return handleApplicationDecision(i, value, true);
+    case "application_refuse":     return handleApplicationDecision(i, value, false);
   }
 }
 
 // ─── Modals ──────────────────────────────────────────────────────────────────
-async function handleModal(interaction: ModalSubmitInteraction) {
-  const [prefix, ...rest] = interaction.customId.split(":");
+async function handleModal(i: ModalSubmitInteraction) {
+  const [prefix, ...rest] = i.customId.split(":");
   const value = rest.join(":");
 
   switch (prefix) {
-    case "modal_ticket_create":  return handleCreateTicketModal(interaction);
-    case "modal_embed_builder":  return handleEmbedBuilderModal(interaction);
-    case "modal_embed_button":   return handleEmbedButtonModal(interaction, value);
-    case "modal_candidature":    return handleCandidatureSubmit(interaction);
+    case "modal_ticket_create":  return handleCreateTicketModal(i);
+    case "modal_embed_builder":  return handleEmbedBuilderModal(i);
+    case "modal_embed_button":   return handleEmbedButtonModal(i, value);
+    case "modal_candidature":    return handleCandidatureSubmit(i);
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMMAND IMPLEMENTATIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // ─── /ticket-setup ────────────────────────────────────────────────────────────
-async function handleTicketSetup(interaction: ChatInputCommandInteraction) {
-  await interaction.deferReply({ ephemeral: true });
+async function handleTicketSetup(i: ChatInputCommandInteraction) {
+  await i.deferReply({ ephemeral: true });
 
   const embed = new EmbedBuilder()
     .setColor(BRAND)
@@ -123,16 +131,11 @@ async function handleTicketSetup(interaction: ChatInputCommandInteraction) {
     )
     .addFields(
       { name: "📋  Comment ça marche ?",
-        value:
-          "**1.** Clique sur **Créer un ticket**\n" +
-          "**2.** Décris ton problème\n" +
-          "**3.** Patiente, le staff arrive !",
-        inline: true,
-      },
+        value: "**1.** Clique sur **Créer un ticket**\n**2.** Décris ton problème\n**3.** Patiente, le staff arrive !",
+        inline: true },
       { name: "⚡  Priorités",
         value: "🔴 Urgente\n🟡 Normale\n🟢 Faible",
-        inline: true,
-      },
+        inline: true },
     )
     .setFooter({ text: "Un ticket par demande • Soyez précis pour une aide rapide" })
     .setTimestamp();
@@ -145,227 +148,248 @@ async function handleTicketSetup(interaction: ChatInputCommandInteraction) {
       .setStyle(ButtonStyle.Primary),
   );
 
-  await (interaction.channel as TextChannel).send({ embeds: [embed], components: [row] });
-  await interaction.editReply({ content: "✅ Panneau de tickets déployé avec succès !" });
+  await (i.channel as TextChannel).send({ embeds: [embed], components: [row] });
+  await i.editReply({ content: "✅ Panneau de tickets déployé avec succès !" });
 }
 
 // ─── /lockdown ────────────────────────────────────────────────────────────────
-async function handleLockdown(interaction: ChatInputCommandInteraction) {
-  await interaction.deferReply({ ephemeral: true });
-  const channel = interaction.channel as TextChannel;
+async function handleLockdownCmd(i: ChatInputCommandInteraction) {
+  await i.deferReply({ ephemeral: true });
+  if (!i.guild) return;
 
-  const perms = channel.permissionOverwrites.cache.get(interaction.guildId!);
-  const isLocked = perms?.deny.has(PermissionFlagsBits.SendMessages) ?? false;
+  const locked = getLockdownState(i.guild.id);
 
-  if (isLocked) {
-    await channel.permissionOverwrites.edit(interaction.guildId!, { SendMessages: null });
-    await channel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(SUCCESS)
-          .setTitle("🔓  Salon Déverrouillé")
-          .setDescription("Ce salon est à nouveau **ouvert** à tous les membres.")
-          .setFooter({ text: `Déverrouillé par ${interaction.user.tag}` })
-          .setTimestamp(),
-      ],
-    });
-    await interaction.editReply({ content: "🔓 Salon déverrouillé." });
-  } else {
-    await channel.permissionOverwrites.edit(interaction.guildId!, { SendMessages: false });
-    await channel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(DANGER)
-          .setTitle("🔒  Salon Verrouillé")
-          .setDescription("Ce salon a été **verrouillé** par le staff.\nPersonne ne peut écrire ici pour l'instant.")
-          .setFooter({ text: `Verrouillé par ${interaction.user.tag}` })
-          .setTimestamp(),
-      ],
-    });
-    await interaction.editReply({ content: "🔒 Salon verrouillé." });
-  }
-}
-
-// ─── /avis ───────────────────────────────────────────────────────────────────
-async function handleAvis(interaction: ChatInputCommandInteraction) {
-  await interaction.deferReply({ ephemeral: true });
-
-  const note        = interaction.options.getInteger("note", true);
-  const commentaire = interaction.options.getString("commentaire", true);
-
-  const stars    = "⭐".repeat(note) + "✩".repeat(5 - note);
-  const barColor = note >= 4 ? SUCCESS : note === 3 ? WARN : DANGER;
+  await activateLockdown(i.guild, !locked);
 
   const embed = new EmbedBuilder()
-    .setColor(barColor)
-    .setAuthor({
-      name: interaction.user.tag,
-      iconURL: interaction.user.displayAvatarURL(),
-    })
-    .setTitle("⭐  Nouvel Avis Client")
-    .addFields(
-      { name: "Note",        value: `${stars}  **(${note} / 5)**`, inline: false },
-      { name: "💬  Avis",   value: `> ${commentaire}`,            inline: false },
-      { name: "✍️  Auteur", value: `<@${interaction.user.id}>`,   inline: true  },
+    .setColor(locked ? SUCCESS : DANGER)
+    .setTitle(locked ? "🔓  Lockdown Levé" : "🔒  Lockdown Activé")
+    .setDescription(
+      locked
+        ? "Le serveur est à nouveau **ouvert**. Tout le monde peut écrire."
+        : "Le serveur est **verrouillé**. Plus personne ne peut écrire dans les salons.\nRelance `/lockdown` pour le déverrouiller.",
     )
-    .setTimestamp()
-    .setFooter({ text: "Merci pour ton retour !" });
+    .setFooter({ text: `Par ${i.user.tag}` })
+    .setTimestamp();
 
-  let sent = false;
-  if (config.reviewsChannelId) {
-    const ch = interaction.guild?.channels.cache.get(config.reviewsChannelId) as TextChannel | undefined;
-    if (ch) { await ch.send({ embeds: [embed] }); sent = true; }
-  }
-  if (!sent) await (interaction.channel as TextChannel).send({ embeds: [embed] });
-
-  await interaction.editReply({ content: "✅ **Merci pour ton avis !** Il a bien été enregistré." });
+  // Announce in current channel
+  await (i.channel as TextChannel).send({ embeds: [embed] });
+  await i.editReply({ content: locked ? "🔓 Lockdown levé." : "🔒 Lockdown activé sur tout le serveur." });
 }
 
-// ─── /suggestion ──────────────────────────────────────────────────────────────
-async function handleSuggestion(interaction: ChatInputCommandInteraction) {
-  await interaction.deferReply({ ephemeral: true });
+// ─── /warn ────────────────────────────────────────────────────────────────────
+async function handleWarnCmd(i: ChatInputCommandInteraction) {
+  await i.deferReply({ ephemeral: true });
+  if (!i.guild) return;
 
-  const idee = interaction.options.getString("idee", true);
+  const target = i.options.getUser("membre", true);
+  const reason = i.options.getString("raison", true);
+
+  const count = addWarn(i.guild.id, target.id, reason, i.user.id);
+
+  const embed = new EmbedBuilder()
+    .setColor(count >= 3 ? DANGER : WARN)
+    .setTitle("⚠️  Avertissement")
+    .addFields(
+      { name: "👤  Membre",        value: `<@${target.id}>`,     inline: true },
+      { name: "⚠️  Avert. n°",    value: `**${count} / 3**`,    inline: true },
+      { name: "📝  Raison",        value: reason,                 inline: false },
+      { name: "👮  Par",           value: `<@${i.user.id}>`,     inline: true },
+    )
+    .setTimestamp();
+
+  if (count >= 3) {
+    embed.setDescription("🔇 **Seuil atteint — Timeout de 10 minutes appliqué automatiquement.**");
+    try {
+      const member = await i.guild.members.fetch(target.id);
+      await member.timeout(10 * 60 * 1000, `3 avertissements — ${reason}`);
+    } catch {}
+  }
+
+  await (i.channel as TextChannel).send({ embeds: [embed] });
+  await i.editReply({ content: `✅ Avertissement enregistré (${count}/3).` });
+}
+
+// ─── /warnings ───────────────────────────────────────────────────────────────
+async function handleWarningsCmd(i: ChatInputCommandInteraction) {
+  await i.deferReply({ ephemeral: true });
+  if (!i.guild) return;
+
+  const target = i.options.getUser("membre", true);
+  const warns  = getWarns(i.guild.id, target.id);
+
+  if (warns.length === 0) {
+    await i.editReply({ content: `✅ <@${target.id}> n'a aucun avertissement.` });
+    return;
+  }
 
   const embed = new EmbedBuilder()
     .setColor(WARN)
-    .setAuthor({
-      name: `Suggestion de ${interaction.user.tag}`,
-      iconURL: interaction.user.displayAvatarURL(),
-    })
+    .setTitle(`⚠️  Avertissements de ${target.tag}`)
+    .setDescription(
+      warns.map((w, idx) =>
+        `**#${idx + 1}** — ${w.reason}\n> Par <@${w.by === "AUTO" ? "Auto" : w.by}> • <t:${Math.floor(w.at / 1000)}:R>`,
+      ).join("\n\n"),
+    )
+    .setFooter({ text: `Total : ${warns.length} / 3` })
+    .setTimestamp();
+
+  await i.editReply({ embeds: [embed] });
+}
+
+// ─── /clear-warns ─────────────────────────────────────────────────────────────
+async function handleClearWarnsCmd(i: ChatInputCommandInteraction) {
+  await i.deferReply({ ephemeral: true });
+  if (!i.guild) return;
+
+  const target = i.options.getUser("membre", true);
+  clearWarns(i.guild.id, target.id);
+
+  await i.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(SUCCESS)
+        .setDescription(`🗑️ Les avertissements de <@${target.id}> ont été **effacés** par <@${i.user.id}>.`),
+    ],
+  });
+}
+
+// ─── /avis ───────────────────────────────────────────────────────────────────
+async function handleAvis(i: ChatInputCommandInteraction) {
+  await i.deferReply({ ephemeral: true });
+
+  const note  = i.options.getInteger("note", true);
+  const texte = i.options.getString("commentaire", true);
+  const stars = "⭐".repeat(note) + "✩".repeat(5 - note);
+  const color = note >= 4 ? SUCCESS : note === 3 ? WARN : DANGER;
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setAuthor({ name: i.user.tag, iconURL: i.user.displayAvatarURL() })
+    .setTitle("⭐  Nouvel Avis Client")
+    .addFields(
+      { name: "Note",        value: `${stars}  **(${note}/5)**`,  inline: false },
+      { name: "💬  Avis",   value: `> ${texte}`,                  inline: false },
+      { name: "✍️  Auteur", value: `<@${i.user.id}>`,             inline: true  },
+    )
+    .setFooter({ text: "Merci pour ton retour !" })
+    .setTimestamp();
+
+  let sent = false;
+  if (config.reviewsChannelId) {
+    const ch = i.guild?.channels.cache.get(config.reviewsChannelId) as TextChannel | undefined;
+    if (ch) { await ch.send({ embeds: [embed] }); sent = true; }
+  }
+  if (!sent) await (i.channel as TextChannel).send({ embeds: [embed] });
+
+  await i.editReply({ content: "✅ Ton avis a bien été enregistré, merci !" });
+}
+
+// ─── /suggestion ──────────────────────────────────────────────────────────────
+async function handleSuggestion(i: ChatInputCommandInteraction) {
+  await i.deferReply({ ephemeral: true });
+
+  const idee = i.options.getString("idee", true);
+
+  const embed = new EmbedBuilder()
+    .setColor(WARN)
+    .setAuthor({ name: `Suggestion de ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
     .setTitle("💡  Nouvelle Suggestion")
     .setDescription(`> ${idee}`)
-    .addFields({ name: "Soumis par", value: `<@${interaction.user.id}>`, inline: true })
+    .addFields({ name: "Proposé par", value: `<@${i.user.id}>`, inline: true })
     .setFooter({ text: "Votez avec les réactions ci-dessous !" })
     .setTimestamp();
 
   let msg;
   if (config.suggestionsChannelId) {
-    const ch = interaction.guild?.channels.cache.get(config.suggestionsChannelId) as TextChannel | undefined;
+    const ch = i.guild?.channels.cache.get(config.suggestionsChannelId) as TextChannel | undefined;
     if (ch) msg = await ch.send({ embeds: [embed] });
   }
-  if (!msg) msg = await (interaction.channel as TextChannel).send({ embeds: [embed] });
+  if (!msg) msg = await (i.channel as TextChannel).send({ embeds: [embed] });
 
   await msg.react("✅");
   await msg.react("❌");
 
-  await interaction.editReply({ content: "✅ Ta suggestion a été soumise au vote de la communauté !" });
+  await i.editReply({ content: "✅ Ta suggestion a été soumise au vote !" });
 }
 
 // ─── /candidature ─────────────────────────────────────────────────────────────
-async function handleCandidature(interaction: ChatInputCommandInteraction) {
+async function handleCandidature(i: ChatInputCommandInteraction) {
   const modal = new ModalBuilder()
     .setCustomId("modal_candidature")
     .setTitle("📋  Formulaire de Candidature");
 
   modal.addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
-      new TextInputBuilder()
-        .setCustomId("cand_age")
-        .setLabel("Quel est ton âge ?")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setMaxLength(3),
+      new TextInputBuilder().setCustomId("cand_age").setLabel("Quel est ton âge ?")
+        .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3),
     ),
     new ActionRowBuilder<TextInputBuilder>().addComponents(
-      new TextInputBuilder()
-        .setCustomId("cand_motivation")
-        .setLabel("Pourquoi veux-tu rejoindre le staff ?")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(500),
+      new TextInputBuilder().setCustomId("cand_motivation").setLabel("Pourquoi veux-tu rejoindre le staff ?")
+        .setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500),
     ),
     new ActionRowBuilder<TextInputBuilder>().addComponents(
-      new TextInputBuilder()
-        .setCustomId("cand_experience")
-        .setLabel("As-tu déjà une expérience en modération ?")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(500),
+      new TextInputBuilder().setCustomId("cand_experience").setLabel("Expérience en modération ?")
+        .setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500),
     ),
     new ActionRowBuilder<TextInputBuilder>().addComponents(
-      new TextInputBuilder()
-        .setCustomId("cand_disponibilite")
-        .setLabel("Disponibilité (heures / semaine)")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setPlaceholder("Ex : 10h par semaine"),
+      new TextInputBuilder().setCustomId("cand_disponibilite").setLabel("Disponibilité (heures / semaine)")
+        .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder("Ex : 10h par semaine"),
     ),
   );
 
-  await interaction.showModal(modal);
+  await i.showModal(modal);
 }
 
-async function handleCandidatureSubmit(interaction: ModalSubmitInteraction) {
-  await interaction.deferReply({ ephemeral: true });
+async function handleCandidatureSubmit(i: ModalSubmitInteraction) {
+  await i.deferReply({ ephemeral: true });
 
-  const age   = interaction.fields.getTextInputValue("cand_age");
-  const motiv = interaction.fields.getTextInputValue("cand_motivation");
-  const exp   = interaction.fields.getTextInputValue("cand_experience");
-  const dispo = interaction.fields.getTextInputValue("cand_disponibilite");
+  const age   = i.fields.getTextInputValue("cand_age");
+  const motiv = i.fields.getTextInputValue("cand_motivation");
+  const exp   = i.fields.getTextInputValue("cand_experience");
+  const dispo = i.fields.getTextInputValue("cand_disponibilite");
 
   const embed = new EmbedBuilder()
     .setColor(BRAND)
-    .setAuthor({
-      name: `Candidature de ${interaction.user.tag}`,
-      iconURL: interaction.user.displayAvatarURL(),
-    })
+    .setAuthor({ name: `Candidature de ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
     .setTitle("📋  Nouvelle Candidature Staff")
     .addFields(
-      { name: "🎂  Âge",            value: age,   inline: true },
-      { name: "⏰  Disponibilité",  value: dispo, inline: true },
-      { name: "💪  Motivations",    value: `> ${motiv}` },
-      { name: "🛡️  Expériences",   value: `> ${exp}` },
+      { name: "🎂  Âge",           value: age,           inline: true },
+      { name: "⏰  Disponibilité", value: dispo,         inline: true },
+      { name: "💪  Motivations",   value: `> ${motiv}` },
+      { name: "🛡️  Expériences",  value: `> ${exp}` },
     )
-    .setFooter({ text: "Utilisez les boutons pour statuer sur cette candidature" })
+    .setFooter({ text: "Utilisez les boutons pour statuer" })
     .setTimestamp();
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`application_accept:${interaction.user.id}`)
-      .setLabel("Accepter")
-      .setEmoji("✅")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`application_refuse:${interaction.user.id}`)
-      .setLabel("Refuser")
-      .setEmoji("❌")
-      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`application_accept:${i.user.id}`).setLabel("Accepter").setEmoji("✅").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`application_refuse:${i.user.id}`).setLabel("Refuser").setEmoji("❌").setStyle(ButtonStyle.Danger),
   );
 
   let sent = false;
   if (config.applicationsChannelId) {
-    const ch = interaction.guild?.channels.cache.get(config.applicationsChannelId) as TextChannel | undefined;
+    const ch = i.guild?.channels.cache.get(config.applicationsChannelId) as TextChannel | undefined;
     if (ch) { await ch.send({ embeds: [embed], components: [row] }); sent = true; }
   }
-  if (!sent) await (interaction.channel as TextChannel).send({ embeds: [embed], components: [row] });
+  if (!sent) await (i.channel as TextChannel).send({ embeds: [embed], components: [row] });
 
-  await interaction.editReply({
-    content: "✅ **Candidature envoyée !** Le staff va l'examiner et tu recevras une réponse.",
-  });
+  await i.editReply({ content: "✅ Candidature envoyée ! Le staff va l'examiner." });
 }
 
 // ─── Application Decision ─────────────────────────────────────────────────────
-async function handleApplicationDecision(
-  interaction: ButtonInteraction,
-  userId: string,
-  accepted: boolean,
-) {
-  await interaction.deferUpdate();
+async function handleApplicationDecision(i: ButtonInteraction, userId: string, accepted: boolean) {
+  await i.deferUpdate();
 
-  const orig = interaction.message.embeds[0];
+  const orig    = i.message.embeds[0];
   const updated = new EmbedBuilder(orig.data)
     .setColor(accepted ? SUCCESS : DANGER)
-    .addFields({
-      name:  accepted ? "✅  Accepté par" : "❌  Refusé par",
-      value: `<@${interaction.user.id}>`,
-      inline: true,
-    });
+    .addFields({ name: accepted ? "✅  Accepté par" : "❌  Refusé par", value: `<@${i.user.id}>`, inline: true });
 
-  await interaction.message.edit({ embeds: [updated], components: [] });
+  await i.message.edit({ embeds: [updated], components: [] });
 
   try {
-    const member = await interaction.guild?.members.fetch(userId);
+    const member = await i.guild?.members.fetch(userId);
     await member?.send({
       embeds: [
         new EmbedBuilder()
@@ -373,8 +397,8 @@ async function handleApplicationDecision(
           .setTitle(accepted ? "🎉  Candidature Acceptée !" : "😔  Candidature Refusée")
           .setDescription(
             accepted
-              ? `Félicitations ! Ta candidature sur **${interaction.guild?.name}** a été **acceptée**.\nBienvenue dans l'équipe, on est ravis de t'avoir avec nous ! 🚀`
-              : `Ta candidature sur **${interaction.guild?.name}** a malheureusement été **refusée** cette fois-ci.\nNe te décourage pas, et réessaie plus tard ! 💪`,
+              ? `Félicitations ! Ta candidature sur **${i.guild?.name}** a été **acceptée**. Bienvenue dans l'équipe ! 🚀`
+              : `Ta candidature sur **${i.guild?.name}** a été **refusée** cette fois-ci. Ne te décourage pas ! 💪`,
           )
           .setTimestamp(),
       ],
