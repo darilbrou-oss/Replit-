@@ -12,6 +12,7 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  MessageFlags,
 } from "discord.js";
 import {
   handleCreateTicketButton,
@@ -39,11 +40,24 @@ import {
 } from "./securityHandler.js";
 import config from "../../config.js";
 
-// ─── Branding ────────────────────────────────────────────────────────────────
+// ─── Colors ───────────────────────────────────────────────────────────────────
 const BRAND   = 0x5865F2;
 const SUCCESS = 0x57F287;
 const DANGER  = 0xED4245;
 const WARN    = 0xFEE75C;
+
+// ─── Helper: get TextChannel safely ──────────────────────────────────────────
+async function getTextChannel(
+  i: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
+): Promise<TextChannel | null> {
+  if (!i.guild) return null;
+  try {
+    const ch = await i.guild.channels.fetch(i.channelId);
+    return ch instanceof TextChannel ? ch : null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Router ──────────────────────────────────────────────────────────────────
 export async function handleInteraction(interaction: Interaction) {
@@ -56,9 +70,9 @@ export async function handleInteraction(interaction: Interaction) {
     try {
       const msg = "❌ Une erreur est survenue. Réessaie dans un instant.";
       if (!interaction.isRepliable()) return;
-      if ("replied" in interaction && interaction.replied)        await interaction.followUp({ content: msg, ephemeral: true });
+      if ("replied" in interaction && interaction.replied)        await interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral });
       else if ("deferred" in interaction && interaction.deferred) await interaction.editReply({ content: msg });
-      else                                                         await interaction.reply({ content: msg, ephemeral: true });
+      else                                                         await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     } catch {}
   }
 }
@@ -119,7 +133,13 @@ async function handleModal(i: ModalSubmitInteraction) {
 
 // ─── /ticket-setup ────────────────────────────────────────────────────────────
 async function handleTicketSetup(i: ChatInputCommandInteraction) {
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const ch = await getTextChannel(i);
+  if (!ch) {
+    await i.editReply({ content: "❌ Impossible d'accéder à ce salon." });
+    return;
+  }
 
   const embed = new EmbedBuilder()
     .setColor(BRAND)
@@ -133,9 +153,7 @@ async function handleTicketSetup(i: ChatInputCommandInteraction) {
       { name: "📋  Comment ça marche ?",
         value: "**1.** Clique sur **Créer un ticket**\n**2.** Décris ton problème\n**3.** Patiente, le staff arrive !",
         inline: true },
-      { name: "⚡  Priorités",
-        value: "🔴 Urgente\n🟡 Normale\n🟢 Faible",
-        inline: true },
+      { name: "⚡  Priorités", value: "🔴 Urgente\n🟡 Normale\n🟢 Faible", inline: true },
     )
     .setFooter({ text: "Un ticket par demande • Soyez précis pour une aide rapide" })
     .setTimestamp();
@@ -148,17 +166,16 @@ async function handleTicketSetup(i: ChatInputCommandInteraction) {
       .setStyle(ButtonStyle.Primary),
   );
 
-  await (i.channel as TextChannel).send({ embeds: [embed], components: [row] });
+  await ch.send({ embeds: [embed], components: [row] });
   await i.editReply({ content: "✅ Panneau de tickets déployé avec succès !" });
 }
 
 // ─── /lockdown ────────────────────────────────────────────────────────────────
 async function handleLockdownCmd(i: ChatInputCommandInteraction) {
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
   if (!i.guild) return;
 
   const locked = getLockdownState(i.guild.id);
-
   await activateLockdown(i.guild, !locked);
 
   const embed = new EmbedBuilder()
@@ -172,47 +189,48 @@ async function handleLockdownCmd(i: ChatInputCommandInteraction) {
     .setFooter({ text: `Par ${i.user.tag}` })
     .setTimestamp();
 
-  // Announce in current channel
-  await (i.channel as TextChannel).send({ embeds: [embed] });
-  await i.editReply({ content: locked ? "🔓 Lockdown levé." : "🔒 Lockdown activé sur tout le serveur." });
+  const ch = await getTextChannel(i);
+  if (ch) await ch.send({ embeds: [embed] });
+  await i.editReply({ content: locked ? "🔓 Lockdown levé." : "🔒 Lockdown activé." });
 }
 
 // ─── /warn ────────────────────────────────────────────────────────────────────
 async function handleWarnCmd(i: ChatInputCommandInteraction) {
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
   if (!i.guild) return;
 
   const target = i.options.getUser("membre", true);
   const reason = i.options.getString("raison", true);
+  const count  = addWarn(i.guild.id, target.id, reason, i.user.id);
 
-  const count = addWarn(i.guild.id, target.id, reason, i.user.id);
-
-  const embed = new EmbedBuilder()
-    .setColor(count >= 3 ? DANGER : WARN)
-    .setTitle("⚠️  Avertissement")
-    .addFields(
-      { name: "👤  Membre",        value: `<@${target.id}>`,     inline: true },
-      { name: "⚠️  Avert. n°",    value: `**${count} / 3**`,    inline: true },
-      { name: "📝  Raison",        value: reason,                 inline: false },
-      { name: "👮  Par",           value: `<@${i.user.id}>`,     inline: true },
-    )
-    .setTimestamp();
-
+  // Auto-mute at 3 warns
   if (count >= 3) {
-    embed.setDescription("🔇 **Seuil atteint — Timeout de 10 minutes appliqué automatiquement.**");
     try {
       const member = await i.guild.members.fetch(target.id);
       await member.timeout(10 * 60 * 1000, `3 avertissements — ${reason}`);
     } catch {}
   }
 
-  await (i.channel as TextChannel).send({ embeds: [embed] });
+  const embed = new EmbedBuilder()
+    .setColor(count >= 3 ? DANGER : WARN)
+    .setTitle("⚠️  Avertissement")
+    .setDescription(count >= 3 ? "🔇 **3 warns atteints — Timeout 10 min appliqué.**" : null)
+    .addFields(
+      { name: "👤  Membre",     value: `<@${target.id}>`,      inline: true },
+      { name: "⚠️  Warn n°",  value: `**${count} / 3**`,      inline: true },
+      { name: "📝  Raison",    value: reason,                   inline: false },
+      { name: "👮  Par",       value: `<@${i.user.id}>`,       inline: true },
+    )
+    .setTimestamp();
+
+  const ch = await getTextChannel(i);
+  if (ch) await ch.send({ embeds: [embed] });
   await i.editReply({ content: `✅ Avertissement enregistré (${count}/3).` });
 }
 
 // ─── /warnings ───────────────────────────────────────────────────────────────
 async function handleWarningsCmd(i: ChatInputCommandInteraction) {
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
   if (!i.guild) return;
 
   const target = i.options.getUser("membre", true);
@@ -225,10 +243,10 @@ async function handleWarningsCmd(i: ChatInputCommandInteraction) {
 
   const embed = new EmbedBuilder()
     .setColor(WARN)
-    .setTitle(`⚠️  Avertissements de ${target.tag}`)
+    .setTitle(`⚠️  Avertissements de ${target.tag ?? target.username}`)
     .setDescription(
       warns.map((w, idx) =>
-        `**#${idx + 1}** — ${w.reason}\n> Par <@${w.by === "AUTO" ? "Auto" : w.by}> • <t:${Math.floor(w.at / 1000)}:R>`,
+        `**#${idx + 1}** — ${w.reason}\n> Par ${w.by === "AUTO" ? "Auto" : `<@${w.by}>`} • <t:${Math.floor(w.at / 1000)}:R>`,
       ).join("\n\n"),
     )
     .setFooter({ text: `Total : ${warns.length} / 3` })
@@ -239,7 +257,7 @@ async function handleWarningsCmd(i: ChatInputCommandInteraction) {
 
 // ─── /clear-warns ─────────────────────────────────────────────────────────────
 async function handleClearWarnsCmd(i: ChatInputCommandInteraction) {
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
   if (!i.guild) return;
 
   const target = i.options.getUser("membre", true);
@@ -256,7 +274,7 @@ async function handleClearWarnsCmd(i: ChatInputCommandInteraction) {
 
 // ─── /avis ───────────────────────────────────────────────────────────────────
 async function handleAvis(i: ChatInputCommandInteraction) {
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
 
   const note  = i.options.getInteger("note", true);
   const texte = i.options.getString("commentaire", true);
@@ -265,50 +283,64 @@ async function handleAvis(i: ChatInputCommandInteraction) {
 
   const embed = new EmbedBuilder()
     .setColor(color)
-    .setAuthor({ name: i.user.tag, iconURL: i.user.displayAvatarURL() })
-    .setTitle("⭐  Nouvel Avis Client")
+    .setAuthor({ name: i.user.tag ?? i.user.username, iconURL: i.user.displayAvatarURL() })
+    .setTitle("⭐  Nouvel Avis")
     .addFields(
-      { name: "Note",        value: `${stars}  **(${note}/5)**`,  inline: false },
-      { name: "💬  Avis",   value: `> ${texte}`,                  inline: false },
-      { name: "✍️  Auteur", value: `<@${i.user.id}>`,             inline: true  },
+      { name: "Note",          value: `${stars}  **(${note}/5)**`, inline: false },
+      { name: "💬  Commentaire", value: `> ${texte}`,              inline: false },
+      { name: "✍️  Par",        value: `<@${i.user.id}>`,          inline: true },
     )
     .setFooter({ text: "Merci pour ton retour !" })
     .setTimestamp();
 
+  // Send to reviews channel if configured, else current channel
   let sent = false;
-  if (config.reviewsChannelId) {
-    const ch = i.guild?.channels.cache.get(config.reviewsChannelId) as TextChannel | undefined;
-    if (ch) { await ch.send({ embeds: [embed] }); sent = true; }
+  if (config.reviewsChannelId && i.guild) {
+    try {
+      const ch = await i.guild.channels.fetch(config.reviewsChannelId) as TextChannel;
+      await ch.send({ embeds: [embed] });
+      sent = true;
+    } catch {}
   }
-  if (!sent) await (i.channel as TextChannel).send({ embeds: [embed] });
+  if (!sent) {
+    const ch = await getTextChannel(i);
+    if (ch) await ch.send({ embeds: [embed] });
+  }
 
   await i.editReply({ content: "✅ Ton avis a bien été enregistré, merci !" });
 }
 
 // ─── /suggestion ──────────────────────────────────────────────────────────────
 async function handleSuggestion(i: ChatInputCommandInteraction) {
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
 
   const idee = i.options.getString("idee", true);
 
   const embed = new EmbedBuilder()
     .setColor(WARN)
-    .setAuthor({ name: `Suggestion de ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
+    .setAuthor({ name: `Suggestion de ${i.user.tag ?? i.user.username}`, iconURL: i.user.displayAvatarURL() })
     .setTitle("💡  Nouvelle Suggestion")
     .setDescription(`> ${idee}`)
     .addFields({ name: "Proposé par", value: `<@${i.user.id}>`, inline: true })
-    .setFooter({ text: "Votez avec les réactions ci-dessous !" })
+    .setFooter({ text: "Votez avec les réactions !" })
     .setTimestamp();
 
   let msg;
-  if (config.suggestionsChannelId) {
-    const ch = i.guild?.channels.cache.get(config.suggestionsChannelId) as TextChannel | undefined;
+  if (config.suggestionsChannelId && i.guild) {
+    try {
+      const ch = await i.guild.channels.fetch(config.suggestionsChannelId) as TextChannel;
+      msg = await ch.send({ embeds: [embed] });
+    } catch {}
+  }
+  if (!msg) {
+    const ch = await getTextChannel(i);
     if (ch) msg = await ch.send({ embeds: [embed] });
   }
-  if (!msg) msg = await (i.channel as TextChannel).send({ embeds: [embed] });
 
-  await msg.react("✅");
-  await msg.react("❌");
+  if (msg) {
+    await msg.react("✅").catch(() => {});
+    await msg.react("❌").catch(() => {});
+  }
 
   await i.editReply({ content: "✅ Ta suggestion a été soumise au vote !" });
 }
@@ -342,7 +374,7 @@ async function handleCandidature(i: ChatInputCommandInteraction) {
 }
 
 async function handleCandidatureSubmit(i: ModalSubmitInteraction) {
-  await i.deferReply({ ephemeral: true });
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
 
   const age   = i.fields.getTextInputValue("cand_age");
   const motiv = i.fields.getTextInputValue("cand_motivation");
@@ -351,11 +383,11 @@ async function handleCandidatureSubmit(i: ModalSubmitInteraction) {
 
   const embed = new EmbedBuilder()
     .setColor(BRAND)
-    .setAuthor({ name: `Candidature de ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
+    .setAuthor({ name: `Candidature de ${i.user.tag ?? i.user.username}`, iconURL: i.user.displayAvatarURL() })
     .setTitle("📋  Nouvelle Candidature Staff")
     .addFields(
-      { name: "🎂  Âge",           value: age,           inline: true },
-      { name: "⏰  Disponibilité", value: dispo,         inline: true },
+      { name: "🎂  Âge",           value: age,         inline: true },
+      { name: "⏰  Disponibilité", value: dispo,       inline: true },
       { name: "💪  Motivations",   value: `> ${motiv}` },
       { name: "🛡️  Expériences",  value: `> ${exp}` },
     )
@@ -368,11 +400,17 @@ async function handleCandidatureSubmit(i: ModalSubmitInteraction) {
   );
 
   let sent = false;
-  if (config.applicationsChannelId) {
-    const ch = i.guild?.channels.cache.get(config.applicationsChannelId) as TextChannel | undefined;
-    if (ch) { await ch.send({ embeds: [embed], components: [row] }); sent = true; }
+  if (config.applicationsChannelId && i.guild) {
+    try {
+      const ch = await i.guild.channels.fetch(config.applicationsChannelId) as TextChannel;
+      await ch.send({ embeds: [embed], components: [row] });
+      sent = true;
+    } catch {}
   }
-  if (!sent) await (i.channel as TextChannel).send({ embeds: [embed], components: [row] });
+  if (!sent) {
+    const ch = await getTextChannel(i);
+    if (ch) await ch.send({ embeds: [embed], components: [row] });
+  }
 
   await i.editReply({ content: "✅ Candidature envoyée ! Le staff va l'examiner." });
 }
@@ -382,7 +420,7 @@ async function handleApplicationDecision(i: ButtonInteraction, userId: string, a
   await i.deferUpdate();
 
   const orig    = i.message.embeds[0];
-  const updated = new EmbedBuilder(orig.data)
+  const updated = EmbedBuilder.from(orig)
     .setColor(accepted ? SUCCESS : DANGER)
     .addFields({ name: accepted ? "✅  Accepté par" : "❌  Refusé par", value: `<@${i.user.id}>`, inline: true });
 
