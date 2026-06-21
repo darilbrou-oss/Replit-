@@ -1,0 +1,42 @@
+Railway deployment failed — Build Error
+
+Regenerate the pnpm-lock.yaml file by running `pnpm install --no-frozen-lockfile` locally and committing the result. The build failed because the `overrides` field in `pnpm-workspace.yaml` was changed without updating the lockfile, and pnpm's frozen install mode requires them to match exactly. No changes were made to the lockfile in the failing commit, so this is a pre-existing mismatch in the repo.
+
+Repository: https://github.com/darilbrou-oss/Replit-
+Branch: main · Commit: 5534fe7 — Fix errors and deprecations in ticket and embed building features
+
+Updates embedHandler.ts and ticketHandler.ts to safely fetch channels, replace deprecated ephemeral flags, and adjust color parsing logic.
+
+Replit-Commit-Author: Agent
+Replit-Commit-Session-Id: 293bf73d-7f4d-4aca-8738-1fea578aac4e
+Replit-Commit-Checkpoint-Type: full_checkpoint
+Replit-Commit-Event-Id: 6ed38b14-58a0-44ed-93d5-cc47d2830d0d
+Replit-Helium-Checkpoint-Created: true
+Deployment ID: 1189756c-df44-4137-ad81-f3d589e519fb
+Service ID: 98f12b46-9078-4093-914f-7b9b63da1870
+Environment ID: b0480a45-f6ad-418a-ba1e-154a12ecf124
+
+---
+
+## Problem
+This is a REPO service using the RAILPACK builder, failing at the BUILD_IMAGE stage. The build runs `pnpm install --frozen-lockfile --prefer-offline` which fails immediately with:
+
+```
+ERR_PNPM_LOCKFILE_CONFIG_MISMATCH  Cannot proceed with the frozen installation.
+The current "overrides" configuration doesn't match the value found in the lockfile
+
+Update your lockfile using "pnpm install --no-frozen-lockfile"
+```
+
+The SNAPSHOT_CODE stage succeeded. BUILD_IMAGE failed during dependency installation. The config comes from `pnpm-workspace.yaml` at the repo root.
+
+## Diagnosis
+The `pnpm-workspace.yaml` file contains an `overrides` section with platform-specific package exclusions for esbuild, lightningcss, @tailwindcss/oxide, rollup, and @expo/ngrok-bin, plus an esbuild version pin to `0.27.3` and a tsx override for `@esbuild-kit/esm-loader`. These overrides were added or modified after `pnpm-lock.yaml` was last generated, creating a mismatch. When pnpm runs with `--frozen-lockfile`, it compares the current configuration (including overrides) against what is stored in the lockfile header and refuses to proceed if they differ. The triggering commit (5534fe76) only modified `embedHandler.ts` and `ticketHandler.ts` — no changes to `pnpm-workspace.yaml` or `pnpm-lock.yaml` — confirming this is a pre-existing mismatch.
+
+## Fix
+This fix cannot be automated because it requires running `pnpm install` to regenerate the binary lockfile.
+
+1. In the repository root (or Replit environment), run: `pnpm install --no-frozen-lockfile`
+2. Commit and push the updated `pnpm-lock.yaml` to the `main` branch.
+
+This synchronizes the lockfile with the current `overrides` configuration in `pnpm-workspace.yaml`, allowing `pnpm install --frozen-lockfile` to succeed during the Railway build.
