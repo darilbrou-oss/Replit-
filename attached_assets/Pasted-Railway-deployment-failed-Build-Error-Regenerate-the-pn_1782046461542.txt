@@ -1,0 +1,35 @@
+Railway deployment failed — Build Error
+
+Regenerate the pnpm-lock.yaml file by running "pnpm install --no-frozen-lockfile" locally and committing the result. The build fails because the "overrides" configuration in pnpm-workspace.yaml does not match what is recorded in pnpm-lock.yaml, causing pnpm to reject the frozen install. Both recent deployments failed with the same error, confirming this is a persistent lockfile mismatch.
+
+Repository: https://github.com/darilbrou-oss/Replit-
+Branch: main · Commit: 5534fe7 — Fix errors and deprecations in ticket and embed building features
+
+Updates embedHandler.ts and ticketHandler.ts to safely fetch channels, replace deprecated ephemeral flags, and adjust color parsing logic.
+
+Replit-Commit-Author: Agent
+Replit-Commit-Session-Id: 293bf73d-7f4d-4aca-8738-1fea578aac4e
+Replit-Commit-Checkpoint-Type: full_checkpoint
+Replit-Commit-Event-Id: 6ed38b14-58a0-44ed-93d5-cc47d2830d0d
+Replit-Helium-Checkpoint-Created: true
+Deployment ID: c6763c51-7bae-4547-9bff-afa0a85243f4
+Service ID: 810e90ae-2348-42bd-a0c5-dd9222437c48
+Environment ID: b0480a45-f6ad-418a-ba1e-154a12ecf124
+
+---
+
+## Problem
+The Railpack build fails during the install step (`pnpm install --frozen-lockfile --prefer-offline`) with:
+```
+ERR_PNPM_LOCKFILE_CONFIG_MISMATCH  Cannot proceed with the frozen installation. The current "overrides" configuration doesn't match the value found in the lockfile
+```
+The SNAPSHOT stage succeeded. The BUILD stage failed in ~2 seconds during dependency installation. The `overrides` field in `pnpm-workspace.yaml` contains platform-specific package exclusions and version pins that are not reflected in the current `pnpm-lock.yaml`.
+
+## Diagnosis
+The `pnpm-workspace.yaml` file defines an `overrides` section that excludes non-Linux platform binaries for esbuild, lightningcss, tailwindcss oxide, rollup, and ngrok, plus pins esbuild to version 0.27.3. The `pnpm-lock.yaml` was generated without these overrides (or with a different version of them). When pnpm runs with `--frozen-lockfile` (Railpack's default for reproducible builds), it compares the overrides in the workspace config against what is stored in the lockfile and rejects the mismatch. The triggering commit only modified TypeScript handler files with no changes to any package or lockfile, meaning the mismatch predates this commit. Both recent deployments failed identically, confirming this is a persistent issue on HEAD.
+
+## Fix
+1. Locally, in the repo root, run: `pnpm install --no-frozen-lockfile`
+2. This will regenerate `pnpm-lock.yaml` to incorporate the current `overrides` from `pnpm-workspace.yaml`
+3. Commit and push the updated `pnpm-lock.yaml` to the `main` branch
+4. This resolves the mismatch and allows subsequent `--frozen-lockfile` installs to succeed in CI and Railway builds
