@@ -9,18 +9,16 @@ export async function deployCommands(
   const rest = new REST({ version: "10" }).setToken(token);
 
   try {
-    console.log("[Deploy] Enregistrement des commandes globales...");
-
-    // Always register globally so commands appear in every server the bot joins
-    await rest.put(Routes.applicationCommands(clientId), { body: commands });
-    console.log("[Deploy] ✅ Commandes globales enregistrées (visibles dans tous les serveurs)");
-
-    // Also register on the configured guild for instant testing (no 1h delay)
+    // 1. Clear guild-specific commands (removes duplicates)
     if (guildId) {
-      await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-      console.log(`[Deploy] ✅ Commandes aussi enregistrées sur le serveur de test ${guildId}`);
+      await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
+      console.log("[Deploy] ✅ Commandes du serveur supprimées (doublons effacés)");
     }
+
+    // 2. Register globally — appear in every server, no duplicates
+    await rest.put(Routes.applicationCommands(clientId), { body: commands });
+    console.log("[Deploy] ✅ Commandes globales enregistrées");
   } catch (err) {
-    console.error("[Deploy] Erreur lors de l'enregistrement des commandes:", err);
+    console.error("[Deploy] Erreur:", err);
   }
 }
